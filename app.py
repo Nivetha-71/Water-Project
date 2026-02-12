@@ -1,90 +1,103 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
+import pickle
 import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import confusion_matrix, accuracy_score
 
-df = pd.read_csv("/content/AquaBalance_Coimbatore_Water_Dataset-1.csv")
-display(df.head())
+# -----------------------------
+# Page Configuration
+# -----------------------------
+st.set_page_config(page_title="Water Risk Prediction", layout="centered")
 
-df.isnull().sum()
-df.fillna(0, inplace=True)
+st.title("💧 Water Risk Prediction & Monitoring System")
 
-df["Water_Waste"] = np.where(
+st.write("This application predicts water risk based on supplied and consumed water data.")
+
+# -----------------------------
+# Load Dataset
+# -----------------------------
+try:
+    df = pd.read_csv("AquaBalance_Coimbatore_Water_Dataset-1.csv")
+except:
+    st.error("Dataset file not found. Please upload the CSV file.")
+    st.stop()
+
+# -----------------------------
+# Create Target Column
+# -----------------------------
+df["Water_Risk"] = np.where(
     df["water_consumed_liters"] > df["water_supplied_liters"], 1, 0
 )
 
-df["Water_Risk"] = np.where(df["supply_status"] == "Normal", 0, 1)
+# -----------------------------
+# Try Loading Model (Optional)
+# -----------------------------
+try:
+    model = pickle.load(open("water_risk_model.pkl", "rb"))
+    model_loaded = True
+except:
+    model_loaded = False
 
-display(df.groupby("area_name")["complaints_count"].mean().sort_values(ascending=False).head())
+# -----------------------------
+# User Input Section
+# -----------------------------
+st.header("🔍 Predict Water Risk")
 
-plt.figure(figsize=(10,5))
-sns.lineplot(x=df["date"], y=df["water_supplied_liters"], label="Supplied")
-sns.lineplot(x=df["date"], y=df["water_consumed_liters"], label="Consumed")
-plt.xticks(rotation=45)
-plt.title("Water Supply vs Consumption")
-plt.show()
+water_supplied = st.number_input("Enter Water Supplied (liters)", min_value=0.0)
+water_consumed = st.number_input("Enter Water Consumed (liters)", min_value=0.0)
 
-plt.figure(figsize=(10,5))
-sns.barplot(x="area_name", y="complaints_count", data=df)
-plt.xticks(rotation=90)
-plt.title("Area-wise Complaints")
-plt.show()
+if st.button("Predict"):
 
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, classification_report
+    if model_loaded:
+        prediction = model.predict([[water_supplied, water_consumed]])
 
-# Prepare features (X) and target (y)
-# Drop non-numeric and target-related columns from features
-X = df.drop(columns=['date', 'area_name', 'supply_status', 'Water_Risk'])
-y = df['Water_Risk']
+        if prediction[0] == 1:
+            st.error("⚠ High Water Risk Detected!")
+        else:
+            st.success("✅ No Water Risk Detected")
+    else:
+        # Simple logic if model not available
+        if water_consumed > water_supplied:
+            st.error("⚠ High Water Risk Detected!")
+        else:
+            st.success("✅ No Water Risk Detected")
 
-# Split data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+# -----------------------------
+# Data Visualization
+# -----------------------------
+st.header("📊 Data Visualization")
 
-# Initialize and train a Logistic Regression model
-model = LogisticRegression(max_iter=1000, random_state=42)
-model.fit(X_train, y_train)
+fig, ax = plt.subplots()
+ax.scatter(df["water_supplied_liters"], df["water_consumed_liters"])
+ax.set_xlabel("Water Supplied (liters)")
+ax.set_ylabel("Water Consumed (liters)")
+ax.set_title("Water Supplied vs Consumed")
 
-X = df[[
-    "population",
-    "rainfall_mm",
-    "temperature_c",
-    "complaints_count",
-    "leak_reports"
-]]
+st.pyplot(fig)
 
+# -----------------------------
+# Model Performance Section
+# -----------------------------
+st.header("📌 Model Performance")
+
+X = df[["water_supplied_liters", "water_consumed_liters"]]
 y = df["Water_Risk"]
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+if model_loaded:
+    y_pred = model.predict(X)
 
-model = LogisticRegression()
-model.fit(X_train, y_train)
+    acc = accuracy_score(y, y_pred)
+    st.write("Model Accuracy:", round(acc * 100, 2), "%")
 
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+    cm = confusion_matrix(y, y_pred)
 
-y_pred = model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-display(accuracy)
+    fig2, ax2 = plt.subplots()
+    ax2.imshow(cm)
+    ax2.set_title("Confusion Matrix")
+    ax2.set_xlabel("Predicted")
+    ax2.set_ylabel("Actual")
 
-cm = confusion_matrix(y_test, y_pred)
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
-plt.title("Confusion Matrix")
-plt.show()
-
-print(classification_report(y_test, y_pred))
-
-import pickle
-pickle.dump(model, open("water_risk_model.pkl", "wb"))
-
-!pip install streamlit
-import streamlit as st
-import pandas as pd
-import pickle
-
-df = pd.read_csv("AquaBalance_Coimbatore_Water_Dataset-1.csv")
-model = pickle.load(open("water_risk_model.pkl", "rb"))
-
-st.title("💧 Water Issue Reporting System")
+    st.pyplot(fig2)
+else:
+    st.info("Model file not found. Upload water_risk_model.pkl to see performance metrics.")
